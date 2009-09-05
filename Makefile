@@ -1,13 +1,14 @@
 INCDIRS = /opt/local/include
 LIBDIRS = /opt/local/lib
-LIBS = event
+LIBS = event yaml
+SOURCES = cometpsd.c yconf.c
+EXECUTABLE = cometpsd
 
-CFLAGS  = -Wall -O2 -DNDEBUG $(addprefix -I, $(INCDIRS))
+CFLAGS = -Wall $(addprefix -I, $(INCDIRS))
+#CFLAGS += -O2 -DNDEBUG
 LDLIBS = $(addprefix -l, $(LIBS) $(LIBS_$(notdir $*)))
 LDFLAGS = $(addprefix -L, $(LIBDIRS)) $(LDLIBS)
-SOURCES = cometpsd.c
 OBJECTS = $(SOURCES:.c=.o)
-EXECUTABLE = cometpsd
 
 all: $(SOURCES) $(EXECUTABLE)
 

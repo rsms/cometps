@@ -30,9 +30,12 @@ THE SOFTWARE.
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <assert.h>
 
 #include <event.h>
 #include <evhttp.h>
+
+#include "yconf.h"
 
 #define MAX_CLIENT_BUFSIZ	(1000 * 1000)
 
@@ -193,29 +196,40 @@ void generic_request_handler(struct evhttp_request *req, void *arg) {
 static void _ignore_cb(int sig, short what, void *arg) {
 }
 
+static void _reload_cb(int sig, short what, void *config) {
+	if (config)
+		yconf_reload((yconf_t *)config);
+	// todo
+	if (g_verbosity)
+		fprintf(stderr, "reloaded OK");
+}
+
 void usage(const char *progname) {
 	fprintf(stderr,
 	"%s: [options]\n"
-	"\t -l <addr>    Address to bind on (127.0.0.1).\n"
-	"\t -p <port>    Port number to listen on (8080).\n"
+	"\t -a <addr>    Address to bind on (defaults to 127.0.0.1).\n"
+	"\t -p <port>    Port number to listen on (defaults to 8080).\n"
 	"\t -k <secret>  Only allow publishing of requests with this key in\n"
 	"                  the header field \"X-CPS-Publish-Key: <secret>\".\n"
-	"\t -v           Verbose (multiple times for more details).\n"
-	"\t -s           Silent (multiple times for less details).\n"
+	"\t -f <file>    Configuration file.\n"
+	"\t -v           Verbose (multiple times for more logging).\n"
+	"\t -s           Silent (multiple times for less logging).\n"
 	,progname);
 }
 
 int main(int argc, char **argv) {
-	extern char   *optarg;
+	extern char    *optarg;
 	extern int     optind;
-	struct event pipe_ev;
-	struct evhttp *http_server = NULL;
+	struct event   pipe_ev, usr1_ev;
+	struct evhttp  *http_server = NULL;
 	int            c;
+	yconf_t  config;
 	
 	short          http_port = 8080;
 	char           *http_addr = "127.0.0.1";
+	const char     *config_file = NULL;
 
-	while ((c = getopt(argc, argv, "dp:l:k:")) != -1) switch(c) {
+	while ((c = getopt(argc, argv, "vsp:l:k:f:")) != -1) switch(c) {
 		case 'v':
 			g_verbosity++;
 			break;
@@ -235,23 +249,45 @@ int main(int argc, char **argv) {
 		case 'k':
 			g_publish_key = optarg;
 			break;
+		case 'f':
+			config_file = optarg;
+			break;
 		default:
 			usage(argv[0]);
 			exit(1);
 	}
 	argc -= optind;
 	argv += optind;
+	
+	/* init libevent */
+	event_init();
+	
+	// load configuration file
+	if (config_file) {
+		yconf_load(&config, config_file);
+		
+    g_verbosity = (int)yconf_get_int(&config, "logging/verbosity", (long long)g_verbosity);
+		
+		printf("config: servers/0/address => %s\n",
+			yconf_get_str(&config, "servers/0/address", "?"));
+		printf("config: servers/1/channels/test2/max_clients => %lld\n",
+			yconf_get_int(&config, "servers/1/channels/test2/max_clients", -1LL));
+		
+		signal_set(&usr1_ev, SIGUSR1, _reload_cb, (void *)&config);
+		signal_add(&usr1_ev, NULL);
+	}
 
 	/* remove soft resource limits */
 	struct rlimit rlim = { RLIM_INFINITY, RLIM_INFINITY };
 	setrlimit(RLIMIT_NOFILE, &rlim);
 	
-	/* init libevent */
-	event_init();
-	
 	/* ignore SIGPIPE (broken connections) */
 	signal_set(&pipe_ev, SIGPIPE, _ignore_cb, NULL);
 	signal_add(&pipe_ev, NULL);
+	
+	// start server(s)
+	if (config_file) {
+  }
 	
 	http_server = evhttp_start(http_addr, http_port);
 	if (http_server == NULL) {
@@ -271,6 +307,8 @@ int main(int argc, char **argv) {
 	if (g_verbosity)
 		fprintf(stderr, "listening on %s:%d\n", http_addr, http_port);
 	event_dispatch();  /* Brooom, brooom */
+	
+	yconf_delete(&config);
 	
 	exit(0); /* UNREACHED ? */
 }

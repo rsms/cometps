@@ -1,0 +1,18 @@
+logging:
+  verbosity: 1
+
+servers:
+  - address: "0.0.0.0"
+    port: 8080
+    channels:
+      test:
+        publish_key: xyz
+      test2:
+        max_clients: 3
+  
+  - port: 8081
+    channels:
+      test:
+        publish_key: xyz
+      test2:
+        max_clients: 3

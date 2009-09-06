@@ -489,7 +489,7 @@ int main(int argc, char **argv) {
 	// load configuration file
 	if (config_file) {
 		yconf_load(&config, config_file);
-		log_level += 1 - (int)yconf_get_int(&config, "logging/log_level", (long long)log_level);
+		log_level += 1 - (int)yconf_get_int(&config, "log_level", (long long)log_level);
 		//printf("config: servers/0/address => %s\n",
 		//	yconf_get_str(&config, "servers/0/address", "?"));
 		//printf("config: servers/1/channels/test2/max_clients => %lld\n",

@@ -1,6 +1,4 @@
-logging:
-  log_level: 1
-
+log_level: 1
 servers:
   - address: "0.0.0.0" # ANY
     port: 8080

@@ -1,4 +1,4 @@
-INCDIRS = /opt/local/include
+INCDIRS = /opt/local/include .
 LIBDIRS = /opt/local/lib
 LIBS = event yaml
 SOURCES = cometpsd.c yconf.c

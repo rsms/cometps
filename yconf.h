@@ -11,6 +11,11 @@ typedef struct {
 	yaml_node_t *currkey;
 } yconf_t;
 
+#define yconf_list_foreach(config, list, item)\
+	for (yaml_node_item_t *it = (list)->data.sequence.items.start;\
+		(it < (list)->data.sequence.items.top) && (item = ((config)->document.nodes.start + (*it) - 1));\
+		it++)
+
 int yconf_load(yconf_t *config, const char *filename);
 int yconf_reload(yconf_t *config);
 void yconf_delete(yconf_t *config);

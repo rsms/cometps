@@ -1,18 +1,16 @@
 logging:
-  verbosity: 1
+  log_level: 1
 
 servers:
-  - address: "0.0.0.0"
+  - address: "0.0.0.0" # ANY
     port: 8080
     channels:
       test:
         publish_key: xyz
+        log_level: 3
       test2:
         max_clients: 3
   
   - port: 8081
-    channels:
-      test:
-        publish_key: xyz
-      test2:
-        max_clients: 3
+    log_level: 2
+    channels: {a: {publish_key: xyz}, b: {}}

@@ -208,7 +208,7 @@ void cps_channel_request_handler(struct evhttp_request *req, void *_channel) {
 	switch (req->type) {
 	case EVHTTP_REQ_GET: {
 		cps_channel_log_debug(ch, "GET %s from %s:%d", req->uri, req->remote_host, req->remote_port);
-		cps_sub_t *sub = cps_sub_open(ch, req);
+		cps_sub_open(ch, req);
 		
 		struct evbuffer *buf = evbuffer_new();
 		evhttp_add_header(req->output_headers, "Content-Type", "text/html; charset=utf-8");
@@ -256,29 +256,6 @@ void cps_server_request_handler(struct evhttp_request *req, void *_server) {
 	evhttp_send_reply(req, 404, "Not Found", NULL);
 }
 
-static void _sigpipe_cb(int sig, short what, void *arg) {
-}
-
-static void _reload_cb(int sig, short what, void *config) {
-	if (config)
-		yconf_reload((yconf_t *)config);
-	// todo: update state, delete/create/update servers and channels which was removed/added/modified.
-	cps_log(yconf_get_int(config, "logging/log_level", CPS_LOG_INFO), CPS_LOG_INFO, "config reloaded");
-}
-
-void usage(const char *progname) {
-	fprintf(stderr,
-	"%s: [options]\n"
-	"  -a <addr>    Address to bind on (defaults to 127.0.0.1).\n"
-	"  -p <port>    Port number to listen on (defaults to 8080).\n"
-	"  -k <secret>  Only allow publishing of requests with this key in\n"
-	"                  the header field \"X-CPS-Publish-Key: <secret>\".\n"
-	"  -f <file>    Configuration file.\n"
-	"  -v           Verbose (multiple times for more logging).\n"
-	"  -s           Silent (multiple times for less logging).\n"
-	,progname);
-}
-
 
 cps_server_t *cps_server_start(const char *address, int port, int log_level) {
 	cps_server_t *server = calloc(1, sizeof(cps_server_t));
@@ -307,7 +284,7 @@ cps_server_t *cps_server_start(const char *address, int port, int log_level) {
 	
 	evhttp_set_gencb(server->http, cps_server_request_handler, server);
 	
-	cps_server_log_info(server, "listening");
+	cps_server_log_info(server, "server listening");
 	
 	return server;
 }
@@ -386,14 +363,71 @@ cps_channel_t *cps_channel_open(cps_server_t *server, const char *name,
 	
 	TAILQ_INSERT_TAIL(&server->channels, channel, next);
 	
-	cps_channel_log_info(channel, "opened (uri: %s, pubkey: %s)", channel->uri, channel->pubkey);
+	cps_channel_log_info(channel, "channel opened at %s%s%s", channel->uri,
+		channel->pubkey ? ", publish_key: " : "", channel->pubkey ? channel->pubkey : "");
 	
 	return channel;
 }
 
 
-void cps_channel_close(cps_channel_t *channel) {
-	// todo
+void cps_channel_close(cps_channel_t *channel) { // todo ?
+}
+
+// ------------------------------------------------------------------------------------------
+// signal handlers
+
+static void _sigpipe_cb(int sig, short what, void *arg) {
+}
+
+static void _reload_cb(int sig, short what, void *config) {
+	if (config)
+		yconf_reload((yconf_t *)config);
+	// todo: update state, delete/create/update servers and channels which was removed/added/modified.
+	cps_log(yconf_get_int(config, "logging/log_level", CPS_LOG_INFO), CPS_LOG_INFO, "config reloaded");
+}
+
+// ------------------------------------------------------------------------------------------
+// main
+
+void usage(const char *progname, bool full) {
+	fprintf(stderr,
+	"%s: [options]\n%s"
+	"  -a <addr>    Address to bind on (defaults to 127.0.0.1).\n"
+	"  -p <port>    Port number to listen on (defaults to 8080).\n"
+	"  -c <channel> Channel name (defaults to \"default\").\n"
+	"  -k <secret>  Only allow publishing of requests with this key in\n"
+	"                the header field \"X-CPS-Publish-Key: <secret>\".\n"
+	"  -f <file>    Read configuration from YAML file.\n"
+	"  -v           Verbose (multiple times for more logging).\n"
+	"  -s           Silent (multiple times for less logging).\n"
+	,progname,(full ? "HTTP slow-response type comet server based on libevent.\n\noptions:\n" : ""));
+	if (full) {
+		fprintf(stderr,
+	"\nConfiguration file:\n"
+	"  The configuration file is a YAML file which can configure multiple server.\n\n"
+	
+	"  Example file:\n\n"
+	
+	"  servers:\n"
+	"    - address: \"0.0.0.0\"\n"
+	"      port: 8080\n"
+	"      channels:\n"
+	"        test:\n"
+	"          publish_key: xyz\n"
+	"        test2:\n"
+	"          max_clients: 3\n"
+	"    \n"
+	"    - port: 1234\n"
+	"      address: \"localhost\"\n"
+	"      log_level: 2\n"
+	"      channels: {a: {publish_key: xyz}, b: {}}\n"
+	"\n"
+	"By Rasmus Andersson <http://hunch.se/>, open source licensed under MIT.\n"
+		);
+	}
+	else {
+		fprintf(stderr, "\nsee %s -h for more details.\n", progname);
+	}
 }
 
 
@@ -402,15 +436,18 @@ int main(int argc, char **argv) {
 	extern int		     optind;
 	struct event	     pipe_ev, usr1_ev;
 	int						     c, log_level = CPS_LOG_INFO;
+	bool               configured_servers;
 	yconf_t	           config;
 	struct cps_servers servers;
+	cps_server_t       *server;
 	
 	short			 http_port = 8080;
 	char			 *http_addr = "127.0.0.1";
 	const char *config_file = NULL;
 	const char *pubkey = NULL;
+	const char *channel_name = "default";
 
-	while ((c = getopt(argc, argv, "vsp:l:k:f:")) != -1) switch(c) {
+	while ((c = getopt(argc, argv, "hvsp:l:k:f:c:")) != -1) switch(c) {
 		case 'v':
 			log_level++;
 			break;
@@ -420,7 +457,7 @@ int main(int argc, char **argv) {
 		case 'p':
 			http_port = atoi(optarg);
 			if (http_port == 0) {
-				usage(argv[0]);
+				usage(argv[0], false);
 				exit(1);
 			}
 			break;
@@ -433,8 +470,14 @@ int main(int argc, char **argv) {
 		case 'f':
 			config_file = optarg;
 			break;
+		case 'c':
+			channel_name = optarg;
+			break;
+		case 'h':
+			usage(argv[0], true);
+			exit(1);
 		default:
-			usage(argv[0]);
+			usage(argv[0], false);
 			exit(1);
 	}
 	argc -= optind;
@@ -446,14 +489,11 @@ int main(int argc, char **argv) {
 	// load configuration file
 	if (config_file) {
 		yconf_load(&config, config_file);
-		
-		log_level = (int)yconf_get_int(&config, "logging/log_level", (long long)log_level);
-		
-		printf("config: servers/0/address => %s\n",
-			yconf_get_str(&config, "servers/0/address", "?"));
-		printf("config: servers/1/channels/test2/max_clients => %lld\n",
-			yconf_get_int(&config, "servers/1/channels/test2/max_clients", -1LL));
-		
+		log_level += 1 - (int)yconf_get_int(&config, "logging/log_level", (long long)log_level);
+		//printf("config: servers/0/address => %s\n",
+		//	yconf_get_str(&config, "servers/0/address", "?"));
+		//printf("config: servers/1/channels/test2/max_clients => %lld\n",
+		//	yconf_get_int(&config, "servers/1/channels/test2/max_clients", -1LL));
 		signal_set(&usr1_ev, SIGUSR1, _reload_cb, (void *)&config);
 		signal_add(&usr1_ev, NULL);
 	}
@@ -468,14 +508,49 @@ int main(int argc, char **argv) {
 	
 	TAILQ_INIT(&servers);
 	
-	// start server(s)
-	/*if (config_file) {
-		cps_server_t *server = cps_server_start(http_addr, http_port);
+	#define yconf_map_foreach(config, map, knode, vnode)\
+		for (yaml_node_pair_t *pair = (map)->data.mapping.pairs.start;\
+			pair < (map)->data.mapping.pairs.top &&\
+			(knode = (config)->document.nodes.start + pair->key - 1) &&\
+			(vnode = (config)->document.nodes.start + pair->value - 1);\
+			pair++)
+	
+	// start server(s) from config
+	configured_servers = false;
+	if (config_file) {
+		yaml_node_t *srvs, *srv;
+		// servers
+		if ((srvs = yconf_find_node(&config, "servers", true)) && srvs->type == YAML_SEQUENCE_NODE) {
+			yconf_list_foreach(&config, srvs, srv) {
+				server = cps_server_start(
+					yconf_get_str2(&config, srv, "address", http_addr),
+					(int)yconf_get_int2(&config, srv, "port", http_port),
+					(int)yconf_get_int2(&config, srv, "log_level", log_level)
+				);
+				
+				// channels
+				yaml_node_t *chnls, *chname, *chnl;
+				if ((chnls = yconf_find_node2(&config, srv, "channels", true)) && chnls->type == YAML_MAPPING_NODE) {
+					yconf_map_foreach(&config, chnls, chname, chnl) {
+						cps_channel_open(server,
+							(const char *)chname->data.scalar.value,
+							(int)yconf_get_int2(&config, chnl, "max_clients", 0),
+							yconf_get_str2(&config, chnl, "publish_key", NULL),
+							(int)yconf_get_int2(&config, chnl, "log_level", log_level)
+						);
+					}
+				}
+				
+				configured_servers = true;
+			}
+		}
 	}
-	else*/ {
-		cps_server_t *server = cps_server_start(http_addr, http_port, log_level);
+	
+	// start server from args if no servers was configured in config
+	if (!configured_servers) {
+		server = cps_server_start(http_addr, http_port, log_level);
 		TAILQ_INSERT_TAIL(&servers, server, next);
-		cps_channel_open(server, "a", 0, pubkey, log_level);
+		cps_channel_open(server, channel_name, 0, pubkey, log_level);
 	}
 	
 	event_dispatch();

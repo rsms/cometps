@@ -4,7 +4,7 @@ LIBS = event yaml
 SOURCES = cometpsd.c yconf.c
 EXECUTABLE = cometpsd
 
-CFLAGS = -Wall $(addprefix -I, $(INCDIRS))
+CFLAGS = -std=c99 -Wall $(addprefix -I, $(INCDIRS))
 #CFLAGS += -O2 -DNDEBUG
 LDLIBS = $(addprefix -l, $(LIBS) $(LIBS_$(notdir $*)))
 LDFLAGS = $(addprefix -L, $(LIBDIRS)) $(LDLIBS)

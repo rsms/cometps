@@ -11,22 +11,22 @@
 
 
 static void _parse_node(yconf_t *config, yaml_node_t *node) {
-	printf("ENTER %s\n", __FUNCTION__);
+	//printf("ENTER %s\n", __FUNCTION__);
 	
 	yaml_node_pair_t *pair = NULL;
 	
 	switch (node->type) {
 		case YAML_SCALAR_NODE:
-			printf("SCALAR %s => '%s'\n", node->tag, node->data.scalar.value);
+			//printf("SCALAR %s => '%s'\n", node->tag, node->data.scalar.value);
 			//if (!yaml_document_add_scalar(document_to, node->tag,
 			//			node->data.scalar.value, node->data.scalar.length,
 			//			node->data.scalar.style)) goto error;
 			break;
 		case YAML_SEQUENCE_NODE:
-			printf("LIST %s => ...\n", node->tag);
+			//printf("LIST %s => ...\n", node->tag);
 			break;
 		case YAML_MAPPING_NODE:
-			printf("MAP %s => ...\n", node->tag);
+			//printf("MAP %s => ...\n", node->tag);
 			
 			//yaml_char_t *anchor = NULL;
 			//yaml_event_t event;
@@ -39,10 +39,10 @@ static void _parse_node(yconf_t *config, yaml_node_t *node) {
 				config->currkey = config->document.nodes.start + pair->key - 1;
 				yaml_node_t *value_node = config->document.nodes.start + pair->value - 1;
 				
-				if (config->currkey->type == YAML_SCALAR_NODE)
-					printf("%s => ", config->currkey->data.scalar.value);
-				else
-					printf("? => ");
+				//if (config->currkey->type == YAML_SCALAR_NODE)
+				//	printf("%s => ", config->currkey->data.scalar.value);
+				//else
+				//	printf("? => ");
 				
 				_parse_node(config, value_node);
 				config->currkey = prev_key_node;

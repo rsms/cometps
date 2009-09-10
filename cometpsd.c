@@ -508,13 +508,6 @@ int main(int argc, char **argv) {
 	
 	TAILQ_INIT(&servers);
 	
-	#define yconf_map_foreach(config, map, knode, vnode)\
-		for (yaml_node_pair_t *pair = (map)->data.mapping.pairs.start;\
-			pair < (map)->data.mapping.pairs.top &&\
-			(knode = (config)->document.nodes.start + pair->key - 1) &&\
-			(vnode = (config)->document.nodes.start + pair->value - 1);\
-			pair++)
-	
 	// start server(s) from config
 	configured_servers = false;
 	if (config_file) {

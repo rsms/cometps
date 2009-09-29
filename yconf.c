@@ -10,7 +10,7 @@
 #define YCONF_PATH_SEP "/"
 
 
-static void _parse_node(yconf_t *config, yaml_node_t *node) {
+/*static void _parse_node(yconf_t *config, yaml_node_t *node) {
 	//printf("ENTER %s\n", __FUNCTION__);
 	
 	yaml_node_pair_t *pair = NULL;
@@ -52,7 +52,7 @@ static void _parse_node(yconf_t *config, yaml_node_t *node) {
 			assert(0 && "unknown node type");
 			break;
 	}
-}
+}*/
 
 
 typedef int strncasecmp_func_t(const char *, const char *, size_t);

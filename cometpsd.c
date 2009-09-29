@@ -24,6 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 #include <sys/types.h>
+#include <sys/resource.h>
 
 #include <sys/queue.h>
 #include <sys/tree.h>
@@ -34,6 +35,7 @@ THE SOFTWARE.
 #include <string.h>
 #include <assert.h>
 #include <err.h>
+#include <signal.h>
 
 #include <event.h>
 #include <evhttp.h>

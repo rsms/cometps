@@ -14,16 +14,19 @@ typedef struct {
 // the following foreach macros requires c99 compilation
 
 #define yconf_list_foreach(config, list, item)\
-	for (yaml_node_item_t *it = (list)->data.sequence.items.start;\
-		(it < (list)->data.sequence.items.top) && (item = ((config)->document.nodes.start + (*it) - 1));\
-		it++)
+	yaml_node_item_t *__yconf_it ## __LINE__; \
+	for (__yconf_it ## __LINE__ = (list)->data.sequence.items.start; \
+	     (__yconf_it ## __LINE__ < (list)->data.sequence.items.top) && \
+	     (item = ((config)->document.nodes.start + (*__yconf_it ## __LINE__) - 1));\
+	    __yconf_it ## __LINE__++)
 
 #define yconf_map_foreach(config, map, knode, vnode)\
-	for (yaml_node_pair_t *pair = (map)->data.mapping.pairs.start;\
-		pair < (map)->data.mapping.pairs.top &&\
-		(knode = (config)->document.nodes.start + pair->key - 1) &&\
-		(vnode = (config)->document.nodes.start + pair->value - 1);\
-		pair++)
+	yaml_node_pair_t *__yconf_pair ## __LINE__;\
+	for (__yconf_pair ## __LINE__ = (map)->data.mapping.pairs.start;\
+		__yconf_pair ## __LINE__ < (map)->data.mapping.pairs.top &&\
+		(knode = (config)->document.nodes.start + __yconf_pair ## __LINE__->key - 1) &&\
+		(vnode = (config)->document.nodes.start + __yconf_pair ## __LINE__->value - 1);\
+		__yconf_pair ## __LINE__++)
 
 int yconf_load(yconf_t *config, const char *filename);
 int yconf_reload(yconf_t *config);

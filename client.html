@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>client</title>
+		<script type="text/javascript" charset="utf-8">
+			// Javascript "library"
+			var channel = {
+				channels: [],
+				open: function(url, onEvent) {
+					var chidx = channel.channels.length;
+					channel.channels.push(null);
+					if (typeof onEvent != 'function')
+						onEvent = function(msg) {};
+					var ch = {
+						url: url,
+						poll: null,
+						onEvent: onEvent,
+						_onEvent: null
+					};
+					ch.poll = function() {
+						var script = document.createElement("script");
+						script.setAttribute("src", url + '?jsonp=channel.channels['+chidx+']._onEvent&rnd='+(new Date()).getTime());
+						script.setAttribute("type", "text/javascript");
+						document.getElementsByTagName("head").item(0).appendChild(script);
+					};
+					ch._onEvent = function(msg) {
+						ch.onEvent(msg);
+						// todo: add pause, isRunning etc
+						ch.poll();
+					};
+					channel.channels[chidx] = ch;
+					setTimeout(ch.poll, 100);
+					return ch;
+				}
+			};
+		</script>	
+		<script type="text/javascript" charset="utf-8">
+			// The actual implementation of this example client:
+			window.onload = function(){
+				channel.open("http://localhost:8080/channel/default", function(msg) {
+					console.log('received event:', msg);
+					document.getElementById('t').value = ''+msg;
+				});
+				// multiple concurrent channels supported
+				/*channel.open("http://localhost:8080/channel/default", function(msg) {
+					console.log('received event on ch2:', msg);
+				});*/
+			};
+		</script>
+	</head>
+	<body>
+		<textarea id="t" style="width:100%;height:200px"></textarea>
+	</body>
+</html>

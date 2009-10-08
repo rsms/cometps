@@ -114,6 +114,7 @@ struct cps_server {
 	struct cps_channels channels;
 	char *name;
 	char *channels_uri;
+	char *docroot;
 	int log_level;
 	TAILQ_ENTRY(cps_server) next;
 };
@@ -127,8 +128,6 @@ typedef struct cps_sub cps_sub_t;
 struct cps_servers g_servers;
 int g_verbosity = 1;
 
-#include "_4ksp.h" // const char g_4k_sp[4096]
-
 static const char *_evhttp_peername(struct evhttp_connection *evcon) {
 	static char buf[128];
 	char *address;
@@ -139,68 +138,61 @@ static const char *_evhttp_peername(struct evhttp_connection *evcon) {
 }
 
 
-static void _evbuffer_align4k(struct evbuffer *msg) {
-	// 4k padding (using SP) needed for MSIE and Safari
-	size_t datlen = 4096 - EVBUFFER_LENGTH(msg); //% 4096);
-	if (datlen > 0)
-		evbuffer_add(msg, g_4k_sp, datlen);
-}
-
-
-static void cps_sub_closed(struct evhttp_connection *evcon, void *_sub) {
-	cps_sub_t *sub = (cps_sub_t *)_sub;
-	cps_sub_log_info(sub, "unsubscribed");
-	TAILQ_REMOVE(&sub->channel->subs, sub, next);
-	free(sub);
-}
-
-
 static cps_sub_t *cps_sub_open(cps_channel_t *ch, struct evhttp_request *req) {
 	cps_sub_t *sub;
 	if (!(sub = calloc(1, sizeof(cps_sub_t))))
 		return NULL;
 	sub->req = req;
 	sub->channel = ch;
-	evhttp_connection_set_closecb(req->evcon, cps_sub_closed, sub);
 	TAILQ_INSERT_TAIL(&ch->subs, sub, next);
-	cps_sub_log_info(sub, "subscribed");
+	cps_sub_log_info(sub, "listening");
 	return sub;
 }
 
 
-static void cps_sub_pub(struct cps_sub *sub, const char *sender, void *buf, size_t len) {
-	struct evbuffer *msg;
-	int n;
+// JSONP responder
+static void cps_sub_pub(struct cps_sub *sub, const char *sender, struct evbuffer *msgbuf) {
+	struct evbuffer *bodybuf;
+	const char *jsonp_callback = NULL;
+	struct evkeyvalq *query = NULL;
 	
-	n = EVBUFFER_LENGTH(sub->req->output_buffer);
-	if (n >= MAX_CLIENT_BUFSIZ) {
-		cps_sub_log_warn(sub, "bufsize >= maxbufsize -- dropping message (%llu) from %s",
-			(unsigned long long)len, sender);
+	if (strstr(sub->req->uri, "jsonp=")) {
+		query = calloc(1, sizeof(struct evkeyvalq));
+		evhttp_parse_query(sub->req->uri, query);
+		jsonp_callback = evhttp_find_header(query, "jsonp");
 	}
-	else {
-		msg = evbuffer_new();
-		evbuffer_add(msg, buf, len);
-		cps_sub_log_debug(sub, "sending message(%llu)", (unsigned long long)len);
-		_evbuffer_align4k(msg); ///< 4k alignment (using SP) needed for MSIE and Safari
-		evhttp_send_reply_chunk(sub->req, msg);
-		evbuffer_free(msg);
-	}
+	
+	if (!jsonp_callback)
+		jsonp_callback = "jsonpcallback";
+	
+	bodybuf = evbuffer_new();
+	evbuffer_add_printf(bodybuf, "%s(", jsonp_callback);
+	evbuffer_add(bodybuf, EVBUFFER_DATA(msgbuf), EVBUFFER_LENGTH(msgbuf));
+	evbuffer_add(bodybuf, (const void *)");", 2);
+	
+	cps_sub_log_debug(sub, "sending message(%llu)", (unsigned long long)EVBUFFER_LENGTH(bodybuf));
+	evhttp_add_header(sub->req->output_headers, "Content-Type", "text/javascript; charset=utf-8");
+	evhttp_send_reply(sub->req, 200, "OK", bodybuf);
+	
+	evbuffer_free(bodybuf);
+	if (query)
+		free(query);
+	
+	TAILQ_REMOVE(&sub->channel->subs, sub, next);
+	free(sub);
 }
 
 
-static void cps_channel_pub(cps_channel_t *ch, const char *sender, void *buf, size_t len) {
+static void cps_channel_pub(cps_channel_t *ch, const char *sender, struct evbuffer *buf) {
 	struct cps_sub *sub;
 	int subcount = 0;
-	
-	cps_channel_log_info(ch, "publishing %llu bytes", (unsigned long long)len);
-	
+	cps_channel_log_info(ch, "publishing %llu bytes", (unsigned long long)EVBUFFER_LENGTH(buf));
 	TAILQ_FOREACH(sub, &ch->subs, next) {
 		subcount++;
-		cps_sub_pub(sub, sender, buf, len);
+		cps_sub_pub(sub, sender, buf);
 	}
-	
 	cps_channel_log_debug(ch, "published %llu bytes to %d subscribers",
-		(unsigned long long)len, subcount);
+		(unsigned long long)EVBUFFER_LENGTH(buf), subcount);
 }
 
 
@@ -211,14 +203,6 @@ void cps_channel_request_handler(struct evhttp_request *req, void *_channel) {
 	case EVHTTP_REQ_GET: {
 		cps_channel_log_debug(ch, "GET %s from %s:%d", req->uri, req->remote_host, req->remote_port);
 		cps_sub_open(ch, req);
-		
-		struct evbuffer *buf = evbuffer_new();
-		evhttp_add_header(req->output_headers, "Content-Type", "text/html; charset=utf-8");
-		evbuffer_add_printf(buf, "<!DOCTYPE html><html><head></head><body>\n");
-		_evbuffer_align4k(buf);
-		evhttp_send_reply_start(req, HTTP_OK, "OK");
-		evhttp_send_reply_chunk(req, buf);
-		evbuffer_free(buf);
 		break;
 	}
 	case EVHTTP_REQ_POST: {
@@ -238,8 +222,7 @@ void cps_channel_request_handler(struct evhttp_request *req, void *_channel) {
 			}
 		}
 		// publish
-		cps_channel_pub(ch, _evhttp_peername(req->evcon), 
-			EVBUFFER_DATA(req->input_buffer), EVBUFFER_LENGTH(req->input_buffer));
+		cps_channel_pub(ch, _evhttp_peername(req->evcon), req->input_buffer);
 		// empty OK reply
 		evhttp_send_reply(req, HTTP_NOCONTENT, "OK", NULL);
 		break;
@@ -372,8 +355,7 @@ cps_channel_t *cps_channel_open(cps_server_t *server, const char *name,
 }
 
 
-void cps_channel_close(cps_channel_t *channel) { // todo ?
-}
+//void cps_channel_close(cps_channel_t *channel) { }
 
 // ------------------------------------------------------------------------------------------
 // signal handlers
@@ -402,7 +384,7 @@ void usage(const char *progname, bool full) {
 	"  -f <file>    Read configuration from YAML file.\n"
 	"  -v           Verbose (multiple times for more logging).\n"
 	"  -s           Silent (multiple times for less logging).\n"
-	,progname,(full ? "HTTP slow-response type comet server based on libevent.\n\noptions:\n" : ""));
+	,progname,(full ? "Long-polling JSONP comet server.\n\noptions:\n" : ""));
 	if (full) {
 		fprintf(stderr,
 	"\nConfiguration file:\n"
@@ -448,8 +430,9 @@ int main(int argc, char **argv) {
 	const char *config_file = NULL;
 	const char *pubkey = NULL;
 	const char *channel_name = "default";
+	const char *docroot = NULL;
 
-	while ((c = getopt(argc, argv, "hvsp:l:k:f:c:")) != -1) switch(c) {
+	while ((c = getopt(argc, argv, "hvsp:l:k:f:c:d:")) != -1) switch(c) {
 		case 'v':
 			log_level++;
 			break;
@@ -474,6 +457,9 @@ int main(int argc, char **argv) {
 			break;
 		case 'c':
 			channel_name = optarg;
+			break;
+		case 'd':
+			docroot = optarg;
 			break;
 		case 'h':
 			usage(argv[0], true);
